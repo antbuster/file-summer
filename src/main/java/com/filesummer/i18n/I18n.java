@@ -18,6 +18,15 @@ public final class I18n {
 
     private static volatile Locale locale = Locale.SIMPLIFIED_CHINESE;
 
+    /**
+     * The stock control inserts the *JVM default* locale into the candidate chain, so on an
+     * English Windows box a zh_CN lookup (which has no messages_zh_CN.properties, the base file
+     * is Chinese) would silently land on messages_en_US. No-fallback keeps the chain
+     * zh_CN -> zh -> base bundle only.
+     */
+    private static final ResourceBundle.Control NO_DEFAULT_FALLBACK =
+            ResourceBundle.Control.getNoFallbackControl(ResourceBundle.Control.FORMAT_PROPERTIES);
+
     private I18n() {
     }
 
@@ -48,7 +57,7 @@ public final class I18n {
     public static String t(String key, Object... args) {
         String pattern;
         try {
-            pattern = ResourceBundle.getBundle("messages", locale).getString(key);
+            pattern = ResourceBundle.getBundle("messages", locale, NO_DEFAULT_FALLBACK).getString(key);
         } catch (MissingResourceException e) {
             return "!" + key;
         }

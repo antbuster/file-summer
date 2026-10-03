@@ -53,6 +53,11 @@ application {
 
 test {
     useJUnitPlatform()
+    // Pin the worker to a non-Chinese locale + UTC: that is the CI runner's default, and a
+    // zh_CN-targeted ResourceBundle lookup on an en-US JVM behaves differently (see I18n).
+    systemProperty 'user.language', 'en'
+    systemProperty 'user.country', 'US'
+    systemProperty 'user.timezone', 'UTC'
 }
 
 // ---------------------------------------------------------------------------

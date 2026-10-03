@@ -42,6 +42,21 @@ class I18nTest {
     }
 
     @Test
+    void chineseResolvesOnEnglishDefaultLocale() {
+        // build.gradle pins the test JVM to en-US, i.e. "Chinese UI on an English Windows box".
+        // Without a no-fallback Control the zh_CN lookup would land on messages_en_US.
+        assertEquals(Locale.US, Locale.getDefault(), "test JVM must run with the CI locale");
+        Locale previous = I18n.getLocale();
+        try {
+            I18n.setLocale(I18n.parse(I18n.TAG_ZH));
+            assertEquals("修改日期", I18n.t("detail.date"));
+            assertEquals("English", I18n.t("lang.en"));
+        } finally {
+            I18n.setLocale(previous);
+        }
+    }
+
+    @Test
     void allBundlesCarryTheSameKeys() throws Exception {
         // raw file comparison: ResourceBundle.keySet() would include parent-bundle keys
         var base = keysOf("messages.properties");
