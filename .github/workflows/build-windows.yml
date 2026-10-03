@@ -1,0 +1,42 @@
+name: Build Windows package
+
+on:
+  push:
+    branches: [main, master]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Temurin JDK ships a jmods/ directory, which the jlink task needs
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      # gradle.properties no longer pins a machine path: setup-java exports
+      # JAVA_HOME and Gradle's daemon runs on the runner's Temurin 17.
+      - name: Unit tests
+        shell: bash
+        run: ./gradlew.bat test --console=plain
+
+      - name: jpackage app-image
+        shell: bash
+        run: ./gradlew.bat jpackage --console=plain
+
+      - name: Zip FileSummer app folder
+        shell: pwsh
+        run: Compress-Archive -Path build/jpackage/FileSummer -DestinationPath FileSummer-windows-x64.zip -Force
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: FileSummer-windows-x64
+          path: FileSummer-windows-x64.zip

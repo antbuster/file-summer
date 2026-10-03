@@ -1,0 +1,18 @@
+# build outputs
+build/
+.gradle/
+
+# local IDE files
+.idea/
+*.iml
+.vscode/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# local smoke-test home fallback (never commit)
+tmpfs-home/
+
+# scratch image-generation output
+vibe_images/

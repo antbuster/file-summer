@@ -1,0 +1,144 @@
+plugins {
+    id 'java'
+    id 'application'
+}
+
+group = 'com.filesummer'
+version = '1.0.0'
+
+ext {
+    jfxVersion   = '21.0.12'
+    jfxPlatform  = 'win'   // linux / mac on other OSes
+    appName      = 'FileSummer'
+    appVersion   = '1.0.0'
+    jdkHome      = System.getProperty('java.home')
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    // JavaFX: use platform-classified jars directly (no openjfx gradle plugin,
+    // which has unknown compatibility with Gradle 9).
+    implementation "org.openjfx:javafx-base:${jfxVersion}:${jfxPlatform}@jar"
+    implementation "org.openjfx:javafx-graphics:${jfxVersion}:${jfxPlatform}@jar"
+    implementation "org.openjfx:javafx-controls:${jfxVersion}:${jfxPlatform}@jar"
+
+    implementation('io.github.mkpaz:atlantafx-base:2.0.1') {
+        // we add platform-classified JavaFX jars ourselves; transitive stubs would
+        // duplicate/empty javafx modules on the module path
+        exclude group: 'org.openjfx'
+    }
+    // MigLayout for JavaFX (openjfx deps are 'provided', only miglayout-core comes along)
+    implementation 'com.miglayout:miglayout-javafx:11.4.3'
+    implementation 'com.fasterxml.jackson.core:jackson-databind:2.17.2'
+    // Groovy engine for user-defined script filters (also lands in jpackage-input via stageApp)
+    implementation 'org.apache.groovy:groovy:4.0.27'
+
+    testImplementation platform('org.junit:junit-bom:5.11.4')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly   'org.junit.platform:junit-platform-launcher'
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+}
+
+application {
+    mainClass = 'com.filesummer.Launcher'
+}
+
+test {
+    useJUnitPlatform()
+}
+
+// ---------------------------------------------------------------------------
+// Run the JavaFX UI from Gradle: classpath app + JavaFX on module path.
+// The Launcher class does NOT extend Application, which is what allows
+// JavaFX to start while the app itself is on the classpath.
+// ---------------------------------------------------------------------------
+def javafxModulePath = provider {
+    configurations.runtimeClasspath.files
+        .findAll { it.name.contains('javafx') && it.name.contains(jfxPlatform) }
+        .collect { it.absolutePath }
+        .join(File.pathSeparator)
+}
+
+tasks.register('runUi', JavaExec) {
+    group = 'application'
+    description = 'Start the FileSummer JavaFX window'
+    mainClass = 'com.filesummer.Launcher'
+    classpath = sourceSets.main.runtimeClasspath
+    doFirst {
+        jvmArgs '--module-path', javafxModulePath.get(),
+                '--add-modules', 'javafx.controls',
+                '-Dfile.encoding=UTF-8'
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Bundle: app jar + third-party libs (NOT JavaFX, those live in runtime img)
+// ---------------------------------------------------------------------------
+def stagingDir   = layout.buildDirectory.dir('jpackage-input')
+def runtimeDir   = layout.buildDirectory.dir('runtime-image')
+
+tasks.register('stageApp', Copy) {
+    dependsOn jar
+    from tasks.jar
+    from(configurations.runtimeClasspath) {
+        exclude 'javafx-*'
+    }
+    into stagingDir
+}
+
+tasks.register('copyWrapperTemplate', Copy) {
+    description = 'Ship wrapper files so generated projects are runnable standalone'
+    from("${projectDir}/gradle/wrapper/gradle-wrapper.jar")
+    from("${projectDir}/gradle/wrapper/gradle-wrapper.properties")
+    from("${projectDir}/gradlew.bat")
+    into "${projectDir}/src/main/resources/gradle-template/wrapper"
+}
+
+processResources.dependsOn 'copyWrapperTemplate'
+
+tasks.register('jlink', Exec) {
+    group = 'distribution'
+    description = 'Create a trimmed runtime image with JavaFX modules'
+    dependsOn 'copyWrapperTemplate'
+    def jmods = "${jdkHome}/jmods"
+    outputs.dir(runtimeDir)
+    doFirst {
+        delete(runtimeDir.get().asFile)
+        commandLine "${jdkHome}/bin/jlink",
+                '--module-path', javafxModulePath.get() + File.pathSeparator + jmods,
+                '--add-modules', 'javafx.controls,java.desktop,java.logging,java.prefs,java.scripting,jdk.unsupported',
+                '--strip-debug', '--no-header-files', '--no-man-pages',
+                '--output', runtimeDir.get().asFile.absolutePath
+    }
+}
+
+tasks.register('jpackage', Exec) {
+    group = 'distribution'
+    description = 'Build a self-contained Windows app image (FileSummer.exe)'
+    dependsOn stageApp, jlink
+    def dest = layout.buildDirectory.dir('jpackage')
+    def jarName = jar.archiveFileName
+    doFirst {
+        delete(dest.get().asFile)
+        commandLine "${jdkHome}/bin/jpackage",
+                '--type', 'app-image',
+                '--name', appName,
+                '--app-version', appVersion,
+                '--icon', "${projectDir}/packaging/FileSummer.ico",
+                '--input', stagingDir.get().asFile.absolutePath,
+                '--main-jar', jarName.get(),
+                '--main-class', 'com.filesummer.Launcher',
+                '--runtime-image', runtimeDir.get().asFile.absolutePath,
+                '--java-options', '--add-modules=javafx.controls',
+                '--java-options', '-Dfile.encoding=UTF-8',
+                '--dest', dest.get().asFile.absolutePath
+    }
+}

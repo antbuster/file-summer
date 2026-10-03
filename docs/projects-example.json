@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "projects": [
+    {
+      "name": "默认项目",
+      "outputDir": "D:\\file-summer-out",
+      "conflictPolicy": "OVERWRITE",
+      "recursive": true,
+      "rules": [
+        {
+          "name": "文档",
+          "enabled": true,
+          "recursive": true,
+          "sourceDirs": [ "D:\\docs", "D:\\workspace\\notes" ],
+          "subDir": "01_DD",
+          "legacyOutputDir": "",
+          "includeSuffixes": [ "docx", "pdf", "md" ],
+          "excludeSuffixes": [ "tmp" ],
+          "excludeDirFragments": [ "node_modules", "Temp Files" ],
+          "dateMode": "RANGE",
+          "dateFrom": "2024-05-01",
+          "dateTo": "2024-10-31"
+        },
+        {
+          "name": "src",
+          "enabled": true,
+          "recursive": false,
+          "sourceDirs": [ "D:\\workspace\\MyAdminBoot\\src" ],
+          "subDir": "02_source",
+          "legacyOutputDir": "",
+          "includeSuffixes": [ "java" ],
+          "excludeSuffixes": [],
+          "excludeDirFragments": [ "generated" ]
+        }
+      ]
+    }
+  ],
+  "currentProjectIndex": 0,
+  "language": "zh_CN"
+}
