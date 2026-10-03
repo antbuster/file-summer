@@ -54,14 +54,47 @@ java --module-path "<gradle缓存中的 javafx-base/graphics/controls 的 *-win.
 taskkill /IM FileSummer.exe /F
 rmdir /S /Q build\jpackage 2>nul
 
-.\gradlew.bat jpackage
+.\gradlew.bat jpackage                        :: 免安装 app-image
+.\gradlew.bat jpackage -PpackageType=msi      :: MSI 安装包
 ```
 
-- 产物：`build\jpackage\FileSummer\FileSummer.exe`（自包含 app-image，双击即可运行，**目标机器无需安装 JDK**）。
+- app-image 产物：`build\jpackage\FileSummer\FileSummer.exe`（自包含，双击即可运行，**目标机器无需安装 JDK**）。
 - 原理：`jlink` 用 JavaFX 的模块化 jar + JDK jmods 生成裁剪运行时（`build/runtime-image`），
   `jpackage --type app-image` 把应用 jar、AtlantaFX/Jackson/MigLayout/Groovy 与运行时合并为独立目录。
-- 如需安装包（msi/exe installer），把 `--type app-image` 改为 `--type exe` 并安装 WiX Toolset v3。
+- MSI/EXE 安装包产物：`build\jpackage-msi\FileSummer-<版本>.msi`（`packageType` 也支持 `exe`，输出到 `build\jpackage-exe`）。
+  这类安装器由 jpackage 内部调用 **WiX Toolset v3**（`candle.exe`/`light.exe`）生成，需要：
+  - 把 WiX v3 目录加进 `PATH`，或设置环境变量 `WIXPATH` 指向它；
+  - **版本必须是 3.x**（`wix314-binaries.zip` 解压后是扁平目录，含 `WixUIExtension.dll` 即可）；
+    WiX v4/v5 的目录结构与 JDK 17 的 jpackage 不兼容。
+  - 安装器额外带 `--win-menu`，开始在开始菜单 `\FileSummer` 分组下创建快捷方式。
+- 本地打 MSI 的完整步骤（实测可用）：
 
+  ```bat
+  :: 下载 wix314-binaries.zip（https://github.com/wixtoolset/wix3/releases）解压到任意目录，
+  :: 解压后应为扁平结构（该目录直接含 candle.exe / light.exe / WixUIExtension.dll）
+  set PATH=D:\tools\wix;%PATH%
+  set WIXPATH=D:\tools\wix
+  .\gradlew.bat --stop         :: 守护进程可能沿用启动时的旧环境变量，必须先停
+  .\gradlew.bat jpackage -PpackageType=msi
+  ```
+
+  版本号只有一个来源：`build.gradle` 的 `version`（`appVersion` 由它派生），改动它即可同时影响
+  jar 名与安装包文件名 `FileSummer-<版本>.msi`。
+
+## GitHub Actions 构建
+
+`.github/workflows/build-windows.yml`（仅 Windows runner）：
+
+| 触发 | 产物 |
+|---|---|
+| push 到 `main`/`master`、PR | 单元测试 + app-image ZIP（Actions artifact `FileSummer-windows-x64`） |
+| **push tag `v*`** | ZIP + MSI，自动创建/更新该 tag 的 **GitHub Release** 并上传两个文件 |
+| `workflow_dispatch`（手动） | ZIP + MSI 存入 artifact（不建 Release，用于验证安装器链路） |
+
+- tag 构建会先校验 **tag 与 `build.gradle` 的 `version` 一致**（`v1.0.0` ↔ `1.0.0`），不一致直接失败，
+  避免发布出文件名与内容版本不符的包。
+- runner 上的 WiX 由 workflow 自动下载解压并注入 `PATH`/`WIXPATH`，无需手工准备。
+- 所以发版流程 = 改 `build.gradle` 的 `version` → 打同名 tag → push tag。
 
 ## 配置文件与容错
 

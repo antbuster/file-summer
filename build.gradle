@@ -4,13 +4,14 @@ plugins {
 }
 
 group = 'com.filesummer'
-version = '1.0.0'
+version = '1.0.1'
 
 ext {
     jfxVersion   = '21.0.12'
     jfxPlatform  = 'win'   // linux / mac on other OSes
     appName      = 'FileSummer'
-    appVersion   = '1.0.0'
+    // single source of truth: bump `version` above, and the installer follows
+    appVersion   = project.version.toString()
     jdkHome      = System.getProperty('java.home')
 }
 
@@ -127,14 +128,16 @@ tasks.register('jlink', Exec) {
 
 tasks.register('jpackage', Exec) {
     group = 'distribution'
-    description = 'Build a self-contained Windows app image (FileSummer.exe)'
+    description = 'Build a Windows app-image (default) or an installer with -PpackageType=msi|exe'
     dependsOn stageApp, jlink
-    def dest = layout.buildDirectory.dir('jpackage')
+    // msi/exe need the WiX Toolset v3 (candle.exe/light.exe) on PATH
+    def type = (project.findProperty('packageType') ?: 'app-image') as String
+    def dest = layout.buildDirectory.dir(type == 'app-image' ? 'jpackage' : "jpackage-${type}")
     def jarName = jar.archiveFileName
     doFirst {
         delete(dest.get().asFile)
-        commandLine "${jdkHome}/bin/jpackage",
-                '--type', 'app-image',
+        def args = ["${jdkHome}/bin/jpackage",
+                '--type', type,
                 '--name', appName,
                 '--app-version', appVersion,
                 '--icon', "${projectDir}/packaging/FileSummer.ico",
@@ -144,6 +147,10 @@ tasks.register('jpackage', Exec) {
                 '--runtime-image', runtimeDir.get().asFile.absolutePath,
                 '--java-options', '--add-modules=javafx.controls',
                 '--java-options', '-Dfile.encoding=UTF-8',
-                '--dest', dest.get().asFile.absolutePath
+                '--dest', dest.get().asFile.absolutePath]
+        if (type in ['msi', 'exe']) {
+            args += ['--win-menu', '--win-menu-group', appName]
+        }
+        commandLine args
     }
 }

@@ -7,6 +7,15 @@ on:
   pull_request:
   workflow_dispatch:
 
+# tag builds publish a GitHub Release (zip + msi)
+permissions:
+  contents: write
+
+env:
+  # jpackage --type msi/exe needs WiX Toolset v3 (candle.exe / light.exe), which is not
+  # preinstalled on the runner. Pinned to 3.14.1 because JDK 17 does not speak WiX v4+.
+  WIX_URL: https://github.com/wixtoolset/wix3/releases/download/wix3141rtm/wix314-binaries.zip
+
 jobs:
   windows:
     runs-on: windows-latest
@@ -35,8 +44,71 @@ jobs:
         shell: pwsh
         run: Compress-Archive -Path build/jpackage/FileSummer -DestinationPath FileSummer-windows-x64.zip -Force
 
-      - name: Upload artifact
+      - name: Upload zip artifact
         uses: actions/upload-artifact@v4
         with:
           name: FileSummer-windows-x64
           path: FileSummer-windows-x64.zip
+
+      # Installers are only worth their time on a release (tag) or a manual run.
+      - name: Decide installer build
+        id: installer
+        shell: bash
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check tag matches app version
+        if: steps.installer.outputs.build == 'true' && github.ref_type == 'tag'
+        shell: bash
+        run: |
+          version=$(sed -n "s/^version = '\(.*\)'/\1/p" build.gradle | head -1)
+          tag="${GITHUB_REF_NAME#v}"
+          if [ "$tag" != "$version" ]; then
+            echo "::error::tag v$tag but build.gradle says $version"
+            exit 1
+          fi
+
+      - name: Install WiX Toolset
+        if: steps.installer.outputs.build == 'true'
+        shell: pwsh
+        run: |
+          # Invoke-WebRequest/Expand-Archive rather than curl/unzip: no dependency on
+          # coreutils being present in the runner's bash.
+          Invoke-WebRequest -Uri $env:WIX_URL -OutFile wix.zip
+          Expand-Archive -Path wix.zip -DestinationPath wix -Force
+          $wix = (Resolve-Path .\wix).Path
+          if (-not (Test-Path (Join-Path $wix 'candle.exe'))) {
+            Write-Error "WiX archive did not contain candle.exe at $wix"
+            exit 1
+          }
+          Add-Content -Path $env:GITHUB_PATH -Value $wix
+          Add-Content -Path $env:GITHUB_ENV -Value "WIXPATH=$wix"
+
+      - name: jpackage msi installer
+        if: steps.installer.outputs.build == 'true'
+        shell: bash
+        run: |
+          ./gradlew.bat jpackage -PpackageType=msi --console=plain
+          cp build/jpackage-msi/*.msi .
+
+      - name: Upload msi artifact
+        if: steps.installer.outputs.build == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: FileSummer-windows-x64-msi
+          path: FileSummer-*.msi
+
+      - name: Publish GitHub Release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          tag="$GITHUB_REF_NAME"
+          if ! gh release view "$tag" >/dev/null 2>&1; then
+            gh release create "$tag" --title "FileSummer $tag" --latest \
+              --notes "Windows x64。FileSummer-windows-x64.zip 为免安装版（解压后运行 FileSummer/FileSummer.exe）；FileSummer-<版本>.msi 为安装包（含开始菜单项）。"
+          fi
+          gh release upload "$tag" FileSummer-windows-x64.zip FileSummer-*.msi --clobber
